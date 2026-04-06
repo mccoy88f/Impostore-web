@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>L'Impostore — Giocatore</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root {
+  --bg:#0a0a0f; --surface:#111118; --card:#16161f; --border:#2a2a3a;
+  --red:#c0392b; --red-glow:#e74c3c; --gold:#d4af37; --gold-dim:#8a7020;
+  --text:#e8e6df; --muted:#7a7870; --white:#f5f3ee; --green:#27ae60;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Crimson Pro',serif;overflow:hidden;}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;padding:20px;}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(192,57,43,0.12) 0%,transparent 70%);}
+
+.logo{text-align:center;margin-bottom:28px;}
+.logo .eye{font-size:10px;letter-spacing:5px;text-transform:uppercase;color:var(--gold);margin-bottom:4px;}
+.logo h1{font-family:'Playfair Display',serif;font-size:clamp(36px,11vw,52px);font-weight:900;color:var(--white);text-shadow:0 0 40px rgba(192,57,43,0.4);}
+.logo h1 span{color:var(--red-glow);font-style:italic;}
+
+.screen{display:none;width:100%;max-width:400px;animation:fadeIn 0.4s ease;}
+.screen.active{display:flex;flex-direction:column;align-items:center;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px 24px;width:100%;margin-bottom:14px;}
+label{display:block;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+input[type=text]{
+  width:100%;padding:14px 16px;background:var(--surface);border:1px solid var(--border);
+  border-radius:6px;color:var(--white);font-family:'Crimson Pro',serif;font-size:18px;
+  outline:none;transition:border-color 0.2s;margin-bottom:16px;
+}
+input:focus{border-color:var(--gold);}
+.btn{
+  width:100%;padding:16px;border:none;border-radius:6px;
+  font-family:'Crimson Pro',serif;font-size:16px;font-weight:600;
+  letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:all 0.2s;
+}
+.btn:active{transform:scale(0.97);}
+.btn-primary{background:var(--red);color:var(--white);box-shadow:0 4px 24px rgba(192,57,43,0.35);}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
+.err{color:var(--red-glow);font-size:13px;margin-top:6px;min-height:18px;text-align:center;}
+
+/* Waiting */
+.waiting-dot{
+  width:12px;height:12px;border-radius:50%;background:var(--gold);
+  animation:blink 1.4s ease-in-out infinite;
+  display:inline-block;margin:0 4px;
+}
+.waiting-dot:nth-child(2){animation-delay:0.2s;}
+.waiting-dot:nth-child(3){animation-delay:0.4s;}
+@keyframes blink{0%,80%,100%{opacity:0.2}40%{opacity:1}}
+.waiting-text{font-size:15px;color:var(--muted);margin-top:16px;text-align:center;}
+
+/* Role card */
+.role-card{
+  width:100%;border-radius:16px;padding:40px 28px;text-align:center;
+  position:relative;overflow:hidden;margin-bottom:16px;
+  animation:revealCard 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes revealCard{from{opacity:0;transform:scale(0.6)}to{opacity:1;transform:scale(1)}}
+.role-card.normal{background:var(--card);border:2px solid var(--gold-dim);box-shadow:0 0 40px rgba(212,175,55,0.1);}
+.role-card.impostor{background:rgba(192,57,43,0.08);border:2px solid var(--red);box-shadow:0 0 50px rgba(192,57,43,0.2);}
+
+.role-label{font-size:10px;letter-spacing:5px;text-transform:uppercase;margin-bottom:12px;}
+.role-card.normal .role-label{color:var(--gold);}
+.role-card.impostor .role-label{color:var(--red);}
+
+.role-icon{font-size:52px;margin-bottom:16px;}
+.role-word{font-family:'Playfair Display',serif;font-size:clamp(34px,10vw,48px);font-weight:900;line-height:1;margin-bottom:8px;}
+.role-card.normal .role-word{color:var(--white);}
+.role-card.impostor .role-word{color:var(--red-glow);font-style:italic;}
+
+.role-desc{font-size:14px;line-height:1.5;margin-top:12px;}
+.role-card.normal .role-desc{color:var(--muted);}
+.role-card.impostor .role-desc{color:rgba(231,76,60,0.7);}
+
+.divider{width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:16px 0;}
+
+/* Timer bar */
+.timer-bar-wrap{width:100%;height:6px;background:var(--border);border-radius:100px;margin-bottom:20px;overflow:hidden;}
+.timer-bar{height:100%;background:var(--red);border-radius:100px;transition:width 1s linear;box-shadow:0 0 8px rgba(192,57,43,0.5);}
+
+.timer-txt{font-family:'Playfair Display',serif;font-size:42px;font-weight:900;color:var(--white);text-align:center;margin-bottom:4px;}
+.timer-sub{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);text-align:center;margin-bottom:20px;}
+
+/* Reveal result */
+.result-big{font-family:'Playfair Display',serif;font-size:clamp(40px,12vw,58px);font-weight:900;color:var(--white);text-align:center;text-shadow:0 0 30px rgba(212,175,55,0.4);margin:8px 0;}
+.impostor-box{background:rgba(192,57,43,0.1);border:1px solid rgba(192,57,43,0.3);border-radius:8px;padding:16px;text-align:center;margin:12px 0;}
+.impostor-box .il{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:4px;}
+.impostor-box .ip{font-family:'Playfair Display',serif;font-size:26px;color:var(--white);}
+
+.player-badge{display:inline-block;background:rgba(212,175,55,0.1);border:1px solid var(--gold-dim);border-radius:100px;padding:4px 16px;font-size:13px;color:var(--gold);margin-bottom:12px;letter-spacing:1px;}
+</style>
+</head>
+<body>
+<div class="logo">
+  <div class="eye">il gioco della</div>
+  <h1>L'<span>Impostore</span></h1>
+</div>
+
+<!-- JOIN -->
+<div class="screen active" id="s-join">
+  <div class="card">
+    <label>Il tuo nome</label>
+    <input type="text" id="player-name" placeholder="Come ti chiami?" maxlength="16" autofocus>
+    <p class="err" id="join-err"></p>
+    <button class="btn btn-primary" onclick="joinGame()">Entra nella partita →</button>
+  </div>
+</div>
+
+<!-- WAITING -->
+<div class="screen" id="s-waiting">
+  <div style="text-align:center; padding:20px 0;">
+    <div style="margin-bottom:24px;">
+      <span class="waiting-dot"></span>
+      <span class="waiting-dot"></span>
+      <span class="waiting-dot"></span>
+    </div>
+    <div id="wait-name" class="player-badge"></div>
+    <div class="waiting-text">Sei nella lobby.<br>Aspetta che l'host avvii la partita…</div>
+  </div>
+</div>
+
+<!-- ROLE (tap to reveal) -->
+<div class="screen" id="s-role-hidden">
+  <div class="card" style="text-align:center; cursor:pointer;" onclick="revealRole()">
+    <div style="font-size:10px;letter-spacing:5px;text-transform:uppercase;color:var(--gold);margin-bottom:16px;">La partita è iniziata!</div>
+    <div style="font-size:48px; margin-bottom:12px;">👁</div>
+    <div style="font-family:'Playfair Display',serif; font-size:22px; color:var(--white); margin-bottom:8px;">Tocca per vedere il tuo ruolo</div>
+    <div style="font-size:13px; color:var(--muted);">Assicurati che gli altri non guardino</div>
+  </div>
+</div>
+
+<!-- ROLE REVEALED -->
+<div class="screen" id="s-role">
+  <div id="role-card-el" class="role-card normal">
+    <div class="role-label" id="role-label">La tua parola</div>
+    <div class="role-icon" id="role-icon">🔤</div>
+    <div class="role-word" id="role-word">—</div>
+    <div class="role-desc" id="role-desc">Descrivi la parola senza dirla direttamente!</div>
+  </div>
+  <div class="timer-bar-wrap"><div class="timer-bar" id="role-bar" style="width:100%"></div></div>
+  <div class="timer-txt" id="role-timer">—</div>
+  <div class="timer-sub">secondi rimanenti</div>
+</div>
+
+<!-- RESULT -->
+<div class="screen" id="s-result">
+  <div class="card" style="text-align:center;">
+    <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">La parola segreta era</div>
+    <div class="result-big" id="res-word"></div>
+    <div class="divider"></div>
+    <div class="impostor-box">
+      <div class="il">L'impostore era</div>
+      <div class="ip" id="res-impostor"></div>
+    </div>
+  </div>
+  <div id="self-result-msg" style="text-align:center; padding:8px 0;"></div>
+</div>
+
+<script>
+const sessionId = location.pathname.split('/join/')[1]?.trim();
+let socket;
+let myRole = null;
+let timerMax, remaining;
+let timerInterval;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// Play alarm sound
+function playAlarm() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [[880,0,0.18],[880,0.22,0.18],[880,0.44,0.18],[440,0.72,0.5]].forEach(([f,t,d]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'square'; o.frequency.setValueAtTime(f, ctx.currentTime+t);
+      g.gain.setValueAtTime(0, ctx.currentTime+t);
+      g.gain.linearRampToValueAtTime(0.35, ctx.currentTime+t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+t+d);
+      o.start(ctx.currentTime+t); o.stop(ctx.currentTime+t+d+0.05);
+    });
+    setTimeout(() => ctx.close(), 2000);
+  } catch(e) {}
+}
+
+function joinGame() {
+  if (!sessionId) { document.getElementById('join-err').textContent = 'Link non valido'; return; }
+  const name = document.getElementById('player-name').value.trim();
+  if (!name) { document.getElementById('join-err').textContent = 'Inserisci il tuo nome'; return; }
+
+  socket = io();
+
+  socket.on('connect', () => {
+    socket.emit('player:join', { sessionId, playerName: name });
+  });
+
+  socket.on('player:joined', ({ playerName }) => {
+    document.getElementById('wait-name').textContent = playerName;
+    showScreen('s-waiting');
+  });
+
+  socket.on('player:role', (data) => {
+    myRole = data;
+    showScreen('s-role-hidden');
+  });
+
+  socket.on('game:started', ({ timerSeconds }) => {
+    timerMax = timerSeconds;
+    remaining = timerSeconds;
+  });
+
+  socket.on('game:reveal', ({ word, impostorName }) => {
+    clearInterval(timerInterval);
+    document.getElementById('res-word').textContent = word;
+    document.getElementById('res-impostor').textContent = impostorName;
+    const msg = document.getElementById('self-result-msg');
+    if (myRole) {
+      if (myRole.isImpostor) {
+        msg.innerHTML = '<span style="color:var(--red-glow);font-size:16px;">😈 Eri tu l\'impostore!</span>';
+      } else {
+        msg.innerHTML = '<span style="color:var(--gold);font-size:16px;">👤 Non eri l\'impostore</span>';
+      }
+    }
+    showScreen('s-result');
+  });
+
+  socket.on('game:restarted', () => {
+    myRole = null;
+    clearInterval(timerInterval);
+    showScreen('s-join');
+  });
+
+  socket.on('error', (msg) => {
+    document.getElementById('join-err').textContent = msg;
+  });
+}
+
+function revealRole() {
+  if (!myRole) return;
+  showScreen('s-role');
+
+  const card = document.getElementById('role-card-el');
+  const label = document.getElementById('role-label');
+  const icon = document.getElementById('role-icon');
+  const word = document.getElementById('role-word');
+  const desc = document.getElementById('role-desc');
+
+  if (myRole.isImpostor) {
+    card.className = 'role-card impostor';
+    label.textContent = 'Sei tu!';
+    icon.textContent = '😈';
+    word.textContent = 'IMPOSTORE';
+    desc.textContent = 'Non conosci la parola. Fai finta di sì e non farti scoprire!';
+  } else {
+    card.className = 'role-card normal';
+    label.textContent = 'La tua parola è';
+    icon.textContent = '🔤';
+    word.textContent = myRole.word;
+    desc.textContent = 'Descrivi la parola senza dirla direttamente. Trova l\'impostore!';
+  }
+
+  // Start timer
+  remaining = timerMax || 120;
+  document.getElementById('role-timer').textContent = remaining;
+  document.getElementById('role-bar').style.width = '100%';
+
+  timerInterval = setInterval(() => {
+    remaining--;
+    remaining = Math.max(0, remaining);
+    document.getElementById('role-timer').textContent = remaining;
+    document.getElementById('role-bar').style.width = ((remaining / timerMax) * 100) + '%';
+    if (remaining <= 0) {
+      clearInterval(timerInterval);
+      playAlarm();
+      document.getElementById('role-timer').style.color = 'var(--red-glow)';
+    }
+  }, 1000);
+}
+
+// Handle input enter key
+document.getElementById('player-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinGame();
+});
+</script>
+</body>
+</html>

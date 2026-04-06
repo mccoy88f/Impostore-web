@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L'Impostore — Host</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root {
+  --bg: #0a0a0f; --surface: #111118; --card: #16161f; --border: #2a2a3a;
+  --red: #c0392b; --red-glow: #e74c3c; --gold: #d4af37; --gold-dim: #8a7020;
+  --text: #e8e6df; --muted: #7a7870; --white: #f5f3ee; --green: #27ae60;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { min-height:100vh; background:var(--bg); color:var(--text); font-family:'Crimson Pro',serif; }
+body { display:flex; flex-direction:column; align-items:center; padding:24px 16px 40px; }
+body::before {
+  content:''; position:fixed; inset:0; pointer-events:none;
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(192,57,43,0.1) 0%, transparent 70%);
+}
+
+.logo { text-align:center; margin-bottom:32px; }
+.logo .eye { font-size:11px; letter-spacing:5px; text-transform:uppercase; color:var(--gold); margin-bottom:6px; }
+.logo h1 { font-family:'Playfair Display',serif; font-size:clamp(40px,10vw,56px); font-weight:900; color:var(--white); text-shadow:0 0 40px rgba(192,57,43,0.4); }
+.logo h1 span { color:var(--red-glow); font-style:italic; }
+.logo .badge { display:inline-block; background:rgba(192,57,43,0.15); border:1px solid var(--red); border-radius:100px; padding:3px 12px; font-size:11px; letter-spacing:2px; color:var(--red); margin-top:8px; }
+
+.screen { display:none; width:100%; max-width:560px; animation:fadeIn 0.4s ease; }
+.screen.active { display:block; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:28px; margin-bottom:16px; }
+.card h2 { font-family:'Playfair Display',serif; font-size:22px; color:var(--white); margin-bottom:18px; }
+
+label { display:block; font-size:12px; letter-spacing:3px; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+input[type=text], input[type=number] {
+  width:100%; padding:14px 16px; background:var(--surface); border:1px solid var(--border);
+  border-radius:6px; color:var(--white); font-family:'Crimson Pro',serif; font-size:16px;
+  outline:none; transition:border-color 0.2s; margin-bottom:18px;
+}
+input:focus { border-color:var(--gold); }
+
+.row { display:flex; gap:12px; }
+.row > * { flex:1; }
+
+.btn {
+  width:100%; padding:16px; border:none; border-radius:6px;
+  font-family:'Crimson Pro',serif; font-size:16px; font-weight:600;
+  letter-spacing:2px; text-transform:uppercase; cursor:pointer; transition:all 0.2s;
+}
+.btn:active { transform:scale(0.97); }
+.btn-primary { background:var(--red); color:var(--white); box-shadow:0 4px 24px rgba(192,57,43,0.35); }
+.btn-gold { background:linear-gradient(135deg,var(--gold-dim),var(--gold)); color:#0a0a0f; font-weight:700; }
+.btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+.btn-green { background:var(--green); color:var(--white); box-shadow:0 4px 24px rgba(39,174,96,0.3); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+.divider { height:1px; background:linear-gradient(90deg,transparent,var(--border),transparent); margin:20px 0; }
+
+/* QR Section */
+.qr-wrap { text-align:center; padding:8px; }
+.qr-wrap img { border-radius:8px; max-width:220px; width:100%; }
+.session-id {
+  font-family:'Playfair Display',serif; font-size:36px; font-weight:900;
+  color:var(--gold); letter-spacing:6px; margin:12px 0 4px;
+}
+.join-url { font-size:13px; color:var(--muted); word-break:break-all; margin-bottom:12px; }
+
+/* Player list */
+.player-list { list-style:none; display:flex; flex-direction:column; gap:8px; min-height:60px; }
+.player-item {
+  display:flex; align-items:center; gap:12px;
+  background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 16px;
+  animation:fadeIn 0.3s ease;
+}
+.player-avatar {
+  width:36px; height:36px; border-radius:50%; background:var(--red);
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Playfair Display',serif; font-size:16px; font-weight:700; color:var(--white); flex-shrink:0;
+}
+.player-name { font-size:17px; font-weight:600; color:var(--white); flex:1; }
+.player-count { font-size:13px; color:var(--muted); }
+
+.empty-hint { color:var(--muted); font-size:14px; text-align:center; padding:20px 0; font-style:italic; }
+
+/* Game screen */
+.status-ring {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  width:160px; height:160px; border-radius:50%; border:3px solid var(--red);
+  margin:0 auto 28px; position:relative;
+  box-shadow:0 0 40px rgba(192,57,43,0.25);
+}
+.status-ring svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+.status-ring svg circle { fill:none; stroke-width:3; }
+.status-ring .bg-c { stroke:var(--border); }
+.status-ring .prog-c { stroke:var(--red); stroke-linecap:round; transition:stroke-dashoffset 1s linear; filter:drop-shadow(0 0 4px rgba(192,57,43,0.6)); }
+.status-ring .inner { position:relative; z-index:1; text-align:center; }
+.status-ring .timer-n { font-family:'Playfair Display',serif; font-size:48px; font-weight:900; color:var(--white); line-height:1; }
+.status-ring .timer-l { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--muted); }
+
+.game-info { text-align:center; margin-bottom:24px; }
+.game-info h2 { font-family:'Playfair Display',serif; font-size:26px; color:var(--white); margin-bottom:6px; }
+.game-info p { font-size:14px; color:var(--muted); }
+
+/* Result */
+.result-word { font-family:'Playfair Display',serif; font-size:clamp(40px,12vw,60px); font-weight:900; color:var(--white); text-align:center; text-shadow:0 0 30px rgba(212,175,55,0.4); margin:8px 0; }
+.impostor-reveal { background:rgba(192,57,43,0.1); border:1px solid rgba(192,57,43,0.3); border-radius:8px; padding:18px; text-align:center; margin:16px 0; }
+.impostor-reveal .il { font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--red); margin-bottom:6px; }
+.impostor-reveal .ip { font-family:'Playfair Display',serif; font-size:28px; color:var(--white); }
+
+.err { color:var(--red-glow); font-size:13px; margin-top:8px; min-height:20px; }
+</style>
+</head>
+<body>
+<div class="logo">
+  <div class="eye">il gioco della</div>
+  <h1>L'<span>Impostore</span></h1>
+  <div class="badge">HOST</div>
+</div>
+
+<!-- SETUP -->
+<div class="screen active" id="s-setup">
+  <div class="card">
+    <h2>Crea una partita</h2>
+    <label>Il tuo nome (host)</label>
+    <input type="text" id="host-name" placeholder="Es. Mario" maxlength="20">
+    <label>Tempo di discussione (secondi)</label>
+    <input type="number" id="host-timer" value="120" min="30" max="600" step="30">
+    <p class="err" id="setup-err"></p>
+    <button class="btn btn-primary" onclick="createSession()">Crea sessione →</button>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div class="screen" id="s-lobby">
+  <div class="card">
+    <div class="qr-wrap">
+      <img id="qr-img" src="" alt="QR Code">
+      <div class="session-id" id="lobby-sid"></div>
+      <div class="join-url" id="lobby-url"></div>
+    </div>
+    <p style="text-align:center; font-size:13px; color:var(--muted);">I giocatori scansionano il QR o visitano il link</p>
+  </div>
+
+  <div class="card">
+    <h2>Giocatori in attesa</h2>
+    <ul class="player-list" id="player-list">
+      <li class="empty-hint">Nessuno ancora…</li>
+    </ul>
+    <p class="player-count" id="player-count-lbl" style="margin-top:12px; text-align:right;"></p>
+  </div>
+
+  <p class="err" id="lobby-err" style="text-align:center"></p>
+  <button class="btn btn-gold" id="start-btn" onclick="startGame()" disabled>Inizia la partita</button>
+</div>
+
+<!-- GAME (timer host view) -->
+<div class="screen" id="s-game">
+  <div class="game-info">
+    <h2>Partita in corso</h2>
+    <p>I giocatori stanno discutendo…</p>
+  </div>
+  <div class="status-ring">
+    <svg viewBox="0 0 100 100">
+      <circle class="bg-c" cx="50" cy="50" r="44"/>
+      <circle class="prog-c" id="ring-circle" cx="50" cy="50" r="44" stroke-dasharray="276.5" stroke-dashoffset="0"/>
+    </svg>
+    <div class="inner">
+      <div class="timer-n" id="g-timer">—</div>
+      <div class="timer-l">secondi</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <ul class="player-list" id="game-player-list"></ul>
+  </div>
+
+  <button class="btn btn-primary" onclick="revealWord()" style="margin-bottom:10px">🔍 Rivela la parola</button>
+</div>
+
+<!-- RESULT -->
+<div class="screen" id="s-result">
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">La parola segreta era</div>
+    <div class="result-word" id="res-word"></div>
+    <div class="divider"></div>
+    <div class="impostor-reveal">
+      <div class="il">L'impostore era</div>
+      <div class="ip" id="res-impostor"></div>
+    </div>
+  </div>
+  <button class="btn btn-gold" onclick="restart()" style="margin-bottom:10px">↩ Nuova partita</button>
+</div>
+
+<script>
+let socket;
+let sessionId;
+let timerInterval;
+let timerMax;
+let remaining;
+const CIRC = 276.5;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+async function createSession() {
+  const name = document.getElementById('host-name').value.trim();
+  const timer = parseInt(document.getElementById('host-timer').value) || 120;
+  if (!name) { document.getElementById('setup-err').textContent = 'Inserisci il tuo nome'; return; }
+
+  try {
+    const res = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostName: name, timerSeconds: timer })
+    });
+    const data = await res.json();
+    if (data.error) { document.getElementById('setup-err').textContent = data.error; return; }
+
+    sessionId = data.sessionId;
+    timerMax = timer;
+    document.getElementById('qr-img').src = data.qr;
+    document.getElementById('lobby-sid').textContent = data.sessionId;
+    document.getElementById('lobby-url').textContent = data.joinUrl;
+    showScreen('s-lobby');
+    connectSocket();
+  } catch(e) {
+    document.getElementById('setup-err').textContent = 'Errore di rete';
+  }
+}
+
+function connectSocket() {
+  socket = io();
+  socket.emit('host:watch', { sessionId });
+
+  socket.on('session:state', (state) => {
+    renderPlayers(state.players, 'player-list');
+    const n = state.players.length;
+    document.getElementById('player-count-lbl').textContent = `${n} giocatore${n !== 1 ? 'i' : ''}`;
+    document.getElementById('start-btn').disabled = n < 3;
+    if (n < 3) document.getElementById('lobby-err').textContent = 'Minimo 3 giocatori per iniziare';
+    else document.getElementById('lobby-err').textContent = '';
+  });
+
+  socket.on('game:started', ({ totalPlayers, timerSeconds }) => {
+    timerMax = timerSeconds;
+    remaining = timerSeconds;
+    showScreen('s-game');
+    document.getElementById('g-timer').textContent = remaining;
+    startTimerUI();
+  });
+
+  socket.on('game:reveal', ({ word, impostorName }) => {
+    clearInterval(timerInterval);
+    document.getElementById('res-word').textContent = word;
+    document.getElementById('res-impostor').textContent = impostorName;
+    showScreen('s-result');
+  });
+
+  socket.on('game:restarted', () => {
+    showScreen('s-lobby');
+  });
+
+  socket.on('error', (msg) => {
+    document.getElementById('lobby-err').textContent = msg;
+  });
+}
+
+function renderPlayers(players, listId) {
+  const ul = document.getElementById(listId);
+  if (players.length === 0) {
+    ul.innerHTML = '<li class="empty-hint">Nessuno ancora…</li>';
+    return;
+  }
+  ul.innerHTML = players.map((p, i) => `
+    <li class="player-item">
+      <div class="player-avatar">${p.name[0].toUpperCase()}</div>
+      <div class="player-name">${escHtml(p.name)}</div>
+    </li>
+  `).join('');
+}
+
+function startTimerUI() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    remaining--;
+    remaining = Math.max(0, remaining);
+    document.getElementById('g-timer').textContent = remaining;
+    const progress = 1 - (remaining / timerMax);
+    document.getElementById('ring-circle').style.strokeDashoffset = CIRC * progress;
+    if (remaining <= 0) {
+      clearInterval(timerInterval);
+      document.getElementById('g-timer').style.color = 'var(--red-glow)';
+    }
+  }, 1000);
+}
+
+function startGame() {
+  document.getElementById('lobby-err').textContent = '';
+  socket.emit('host:start', { sessionId });
+}
+
+function revealWord() {
+  socket.emit('host:reveal', { sessionId });
+}
+
+function restart() {
+  socket.emit('host:restart', { sessionId });
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
